@@ -1,44 +1,86 @@
-function createElement(type, props, ...children) {
-  return {
-    type,
-    props: props || {},
-    children: children.flat(),
-  };
+// ========== TinyReact の内部状態 ==========
+let hooks = [];
+let currentHook = 0;
+let rootComponent = null;
+let rootElement = null;
+
+const TinyReact = {
+  useState(initialValue) {
+    const hookIndex = currentHook;
+
+    // 初回だけ初期値を入れる
+    hooks[hookIndex] = hooks[hookIndex] ?? initialValue;
+
+    function setState(newValue) {
+      hooks[hookIndex] = newValue;
+      renderRoot(); // 再レンダー
+    }
+
+    currentHook++;
+    return [hooks[hookIndex], setState];
+  }
+};
+
+// ========== JSX風の構文サポート ==========
+
+function createElement(type, props = {}, ...children) {
+  return { type, props, children };
 }
 
-// コンポーネント関数
-function Hello(props) {
-  return createElement('h1', {}, `Hello, ${props.name}`);
-}
+// ========== 仮想DOM → 本物のDOM ==========
 
-const vdom = createElement(Hello, { name: 'TinyReact' });
-
-// 仮想DOMから本物のDOMを作成する関数
 function render(vnode) {
-  // テキストノード（文字列）
+  // テキストノード
   if (typeof vnode === 'string') {
     return document.createTextNode(vnode);
   }
 
   // 関数コンポーネント
   if (typeof vnode.type === 'function') {
-    return render(vnode.type({ ...vnode.props }));
+    currentHook = 0; // 各コンポーネントの呼び出しごとにリセット
+    return render(vnode.type(vnode.props));
   }
 
   // 通常のDOMノード
   const el = document.createElement(vnode.type);
 
+  // 属性の設定
   for (const [key, value] of Object.entries(vnode.props || {})) {
-    el.setAttribute(key, value);
+    if (key.startsWith('on') && typeof value === 'function') {
+      el.addEventListener(key.slice(2).toLowerCase(), value);
+    } else {
+      el.setAttribute(key, value);
+    }
   }
 
-  (vnode.children || []).forEach(child => {
+  // 子ノードの再帰レンダリング
+  vnode.children.forEach(child => {
     el.appendChild(render(child));
   });
 
   return el;
 }
 
-// 実際に描画
-const root = document.getElementById('root');
-root.appendChild(render(vdom));
+// ========== 状態付きコンポーネントの描画 ==========
+function renderRoot() {
+  currentHook = 0; // 再描画時にフックの位置をリセット
+  rootElement.innerHTML = '';
+  rootElement.appendChild(render(rootComponent));
+}
+
+// ========== サンプル：useState を使ったボタン ==========
+function Counter() {
+  const [count, setCount] = TinyReact.useState(0);
+
+  return createElement(
+    'button',
+    { onclick: () => setCount(count + 1) },
+    `Clicked ${count} times`
+  );
+}
+
+// ========== エントリーポイント ==========
+const vdom = createElement(Counter, {});
+rootComponent = vdom;
+rootElement = document.getElementById('root');
+rootElement.appendChild(render(vdom));
